@@ -147,6 +147,7 @@ class S6VPHY(Module, AutoCSR):
                                   o_UPDATE=update, i_TDO=tdo)
         self.comb += tdo.eq(jtag_register[0])
         self.sync.jtag += [
+            rx_done.eq(0),
             tx_read.eq(0),
             If(sel,
                 If(update,
