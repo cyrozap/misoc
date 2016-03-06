@@ -7,6 +7,7 @@ from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 from migen.build.platforms import pano_g2
 
+from misoc.cores import gpio
 from misoc.cores.sdram_settings import MT47H32M16
 from misoc.cores.sdram_phy import S6HalfRateDDRPHY
 from misoc.integration.soc_sdram import *
@@ -114,6 +115,9 @@ class BaseSoC(SoCSDRAM):
         ]
         self.register_sdram(self.ddrphy, "minicon",
                             sdram_module.geom_settings, sdram_module.timing_settings)
+
+        self.submodules.leds = gpio.GPIOOut(Cat(platform.request("led_red", 0),
+            platform.request("led_blue", 0), platform.request("led_green", 0)))
 
 
 soc_pano_g2_args = soc_sdram_args
