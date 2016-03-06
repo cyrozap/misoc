@@ -42,6 +42,7 @@ class SoCCore(Module):
                 shadow_base=0x80000000,
                 csr_data_width=8, csr_address_width=14,
                 with_uart=True, uart_baudrate=115200,
+                uart_type="real",
                 ident="",
                 with_timer=True):
         self.platform = platform
@@ -100,8 +101,14 @@ class SoCCore(Module):
         self.register_mem("csr", self.mem_map["csr"], self.wishbone2csr.wishbone)
 
         if with_uart:
-            self.submodules.uart_phy = uart.RS232PHY(platform.request("serial"), clk_freq, uart_baudrate)
-            self.submodules.uart = uart.UART(self.uart_phy)
+            if uart_type == "real":
+                self.submodules.uart_phy = uart.RS232PHY(platform.request("serial"), clk_freq, uart_baudrate)
+                self.submodules.uart = uart.UART(self.uart_phy)
+            elif uart_type == "virtual":
+                self.submodules.uart_phy = uart.S6VPHY()
+                self.submodules.uart = uart.UART(self.uart_phy, phy_cd="jtag")
+            else:
+                raise ValueError("Unsupported UART type: {}".format(uart_type))
 
         if ident:
             self.submodules.identifier = identifier.Identifier(ident)

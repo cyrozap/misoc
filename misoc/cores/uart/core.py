@@ -1,5 +1,6 @@
 from migen import *
 from migen.genlib.record import Record
+from migen.genlib.resetsync import AsyncResetSynchronizer
 from migen.genlib.cdc import MultiReg
 
 from misoc.interconnect.csr import *
@@ -109,6 +110,66 @@ class RS232PHY(Module, AutoCSR):
         self.submodules.tx = RS232PHYTX(pads, self._tuning_word.storage)
         self.submodules.rx = RS232PHYRX(pads, self._tuning_word.storage)
         self.sink, self.source = self.tx.sink, self.rx.source
+
+
+class S6VPHY(Module, AutoCSR):
+    def __init__(self):
+        self.clock_domains.cd_jtag = ClockDomain()
+        self.source = Source([("data", 8)])
+        self.sink = Sink([("data", 8)])
+
+        rx_done = self.source.stb
+        rx_data = self.source.data
+
+        tx_available = self.sink.stb
+        tx_read = self.sink.ack
+        tx_data = self.sink.data
+
+        capture = Signal()
+        tck = Signal()
+        reset = Signal()
+        sel = Signal()
+        shift = Signal()
+        tdi = Signal()
+        update = Signal()
+        tdo = Signal()
+
+        jtag_bitcount = Signal(4)
+        jtag_register_length = 10
+        jtag_register = Signal(jtag_register_length)
+
+        self.comb += self.cd_jtag.clk.eq(tck)
+        self.specials += AsyncResetSynchronizer(self.cd_jtag, reset)
+        self.specials += Instance("BSCAN_SPARTAN6", p_JTAG_CHAIN=2,
+                                  o_CAPTURE=capture, o_DRCK=tck,  o_RESET=reset,
+                                  o_RUNTEST=None, o_SEL=sel, o_SHIFT=shift,
+                                  o_TCK=None, o_TDI=tdi, o_TMS=None,
+                                  o_UPDATE=update, i_TDO=tdo)
+        self.comb += tdo.eq(jtag_register[0])
+        self.sync.jtag += [
+            tx_read.eq(0),
+            If(sel,
+                If(update,
+                    If(jtag_register[0] & (jtag_bitcount == jtag_register_length),
+                        rx_data.eq(jtag_register[1:9]),
+                        rx_done.eq(1)
+                    )
+                ).Elif(shift,
+                    jtag_register.eq(Cat(jtag_register[1:], tdi)),
+                    jtag_bitcount.eq(jtag_bitcount + 1),
+                    If(tx_available & tdi & (jtag_bitcount == jtag_register_length-1),
+                        tx_read.eq(1)
+                    )
+                ).Elif(capture,
+                    jtag_bitcount.eq(0),
+                    If(tx_available,
+                        jtag_register.eq(Cat(1, tx_data))
+                    ).Else(
+                        jtag_register.eq(0)
+                    )
+                )
+            )
+        ]
 
 
 def _get_uart_fifo(depth, sink_cd="sys", source_cd="sys"):

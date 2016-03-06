@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import binascii
 import sys
 import os
 import time
 import serial
+import socket
 import threading
 import argparse
 
@@ -112,32 +114,89 @@ class SFLFrame:
 
 
 class Flterm:
-    def __init__(self, kernel_image, kernel_address):
+    def __init__(self, kernel_image, kernel_address, conn_type="serial"):
         self.kernel_image = kernel_image
         self.kernel_address = kernel_address
+        self.conn_type = conn_type
 
         self.reader_alive = False
         self.writer_alive = False
 
         self.magic_detect_buffer = bytes(len(sfl_magic_req))
 
-    def open(self, port, baudrate):
+    def serial_open(self, port, baudrate):
         if hasattr(self, "port"):
             return
         self.port = serial.serial_for_url(port, baudrate)
 
-    def close(self):
+    def serial_close(self):
         if not hasattr(self, "port"):
             return
         self.port.close()
         del self.port
 
+    def jtag_open(self, host):
+        if hasattr(self, "socket"):
+            return
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.connect(("127.0.0.1", 6666))
+        self.openocd_sendrecv("irscan 0 0x3")
+
+    def jtag_close(self):
+        if not hasattr(self, "socket"):
+            return
+        try:
+            self.openocd_sendrecv("exit")
+        finally:
+            self.socket.close()
+        del self.socket
+
+    def jtag_write(self, data):
+        for character in data:
+            character = (character << 1) + 1
+            self.openocd_sendrecv("drscan xc6s.tap 10 0x%03x" % character)
+
+    def jtag_read(self, size=1):
+        data = bytes()
+        for i in range(0, size):
+            raw = self.openocd_sendrecv("drscan xc6s.tap 10 0x200")
+            try:
+                raw_data = binascii.a2b_hex(raw)
+            except:
+                sys.stderr.write("Error: odd-length reponse: {}".format(raw))
+                raw_data = b''
+            if len(raw_data) == 2:
+                if raw_data[1] & 0x001:
+                    data += bytes([((raw_data[0] & 0x1) << 7) | (raw_data[1] >> 1)])
+        return data
+
+    def openocd_send(self, data):
+        self.socket.sendall((data + '\x1a').encode("utf-8"))
+
+    def openocd_recv(self):
+        data = bytes()
+        while True:
+            chunk = self.socket.recv(4096)
+            data += chunk
+            if bytes('\x1a', encoding="utf-8") in chunk:
+                break
+        return data.decode("utf-8").strip()[:-1]
+
+    def openocd_sendrecv(self, data):
+        self.openocd_send(data)
+        return self.openocd_recv()
+
     def send_frame(self, frame):
         retry = 1
         while retry:
-            self.port.write(frame.encode())
-            # Get the reply from the device
-            reply = self.port.read()
+            if self.conn_type == "serial":
+                self.port.write(frame.encode())
+                # Get the reply from the device
+                reply = self.port.read()
+            else:
+                self.jtag_write(frame.encode())
+                # Get the reply from the device
+                reply = self.jtag_read()
             if reply == sfl_ack_success:
                 retry = 0
             elif reply == sfl_ack_crcerror:
@@ -179,7 +238,7 @@ class Flterm:
         print("[FLTERM] Booting the device.")
         frame = SFLFrame()
         frame.cmd = sfl_cmd_jump
-        frame.payload = self.kernel_address.to_bytes(4, "big") 
+        frame.payload = self.kernel_address.to_bytes(4, "big")
         self.send_frame(frame)
 
     def detect_magic(self, data):
@@ -192,7 +251,10 @@ class Flterm:
     def answer_magic(self):
         print("[FLTERM] Received firmware download request from the device.")
         if os.path.exists(self.kernel_image):
-            self.port.write(sfl_magic_ack)
+            if self.conn_type == "serial":
+                self.port.write(sfl_magic_ack)
+            else:
+                self.jtag_write(sfl_magic_ack)
             self.upload(self.kernel_image, self.kernel_address)
             self.boot()
         print("[FLTERM] Done.");
@@ -200,7 +262,10 @@ class Flterm:
     def reader(self):
         try:
             while self.reader_alive:
-                c = self.port.read()
+                if self.conn_type == "serial":
+                    c = self.port.read()
+                else:
+                    c = self.jtag_read()
                 if c == b"\r":
                     sys.stdout.write(b"\n")
                 else:
@@ -228,7 +293,10 @@ class Flterm:
     def writer(self):
         try:
             while self.writer_alive:
-                self.port.write(getkey())
+                if self.conn_type == "serial":
+                    self.port.write(getkey())
+                else:
+                    self.jtag_write(getkey())
         except:
             self.writer_alive = False
             raise
@@ -260,7 +328,8 @@ class Flterm:
 
 def _get_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("port", help="serial port")
+    parser.add_argument("type", choices=["serial", "jtag"], help="connection type")
+    parser.add_argument("--port", help="serial port")
     parser.add_argument("--speed", default=115200, help="serial baudrate")
     parser.add_argument("--kernel", default=None, help="kernel image")
     parser.add_argument("--kernel-adr", type=lambda a: int(a, 0), default=0x40000000, help="kernel address")
@@ -269,15 +338,24 @@ def _get_args():
 
 def main():
     args = _get_args()
-    flterm = Flterm(args.kernel, args.kernel_adr)
+    flterm = Flterm(args.kernel, args.kernel_adr, conn_type=args.type)
     init_getkey()
+
     try:
-        try:
-            flterm.open(args.port, args.speed)
-            flterm.start()
-            flterm.join(True)
-        finally:
-            flterm.close()
+        if args.type == "serial":
+            try:
+                flterm.serial_open(args.port, args.speed)
+                flterm.start()
+                flterm.join(True)
+            finally:
+                flterm.serial_close()
+        else:
+            try:
+                flterm.jtag_open(args.port)
+                flterm.start()
+                flterm.join(True)
+            finally:
+                flterm.jtag_close()
     finally:
         deinit_getkey()
 
