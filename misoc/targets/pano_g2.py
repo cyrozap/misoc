@@ -7,7 +7,7 @@ from migen import *
 from migen.genlib.resetsync import AsyncResetSynchronizer
 from migen.build.platforms import pano_g2
 
-from misoc.cores.sdram_settings import MT46H32M16
+from misoc.cores.sdram_settings import MT47H32M16
 from misoc.cores.sdram_phy import S6HalfRateDDRPHY
 from misoc.integration.soc_sdram import *
 from misoc.integration.builder import *
@@ -102,7 +102,7 @@ class BaseSoC(SoCSDRAM):
 
         self.submodules.crg = _CRG(platform, clk_freq)
 
-        sdram_module = MT46H32M16(self.clk_freq)
+        sdram_module = MT47H32M16(self.clk_freq)
         self.submodules.ddrphy = S6HalfRateDDRPHY(platform.request("ddram_a"),
                                                   sdram_module.memtype,
                                                   rd_bitslip=1,
