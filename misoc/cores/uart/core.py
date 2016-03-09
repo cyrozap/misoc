@@ -126,10 +126,10 @@ class S6VPHY(Module, AutoCSR):
         tx_data = self.sink.data
 
         capture = Signal()
-        tck = Signal()
         reset = Signal()
         sel = Signal()
         shift = Signal()
+        tck = Signal()
         tdi = Signal()
         update = Signal()
         tdo = Signal()
@@ -141,9 +141,9 @@ class S6VPHY(Module, AutoCSR):
         self.comb += self.cd_jtag.clk.eq(tck)
         self.specials += AsyncResetSynchronizer(self.cd_jtag, reset)
         self.specials += Instance("BSCAN_SPARTAN6", p_JTAG_CHAIN=2,
-                                  o_CAPTURE=capture, o_DRCK=tck,  o_RESET=reset,
+                                  o_CAPTURE=capture, o_DRCK=None, o_RESET=reset,
                                   o_RUNTEST=None, o_SEL=sel, o_SHIFT=shift,
-                                  o_TCK=None, o_TDI=tdi, o_TMS=None,
+                                  o_TCK=tck, o_TDI=tdi, o_TMS=None,
                                   o_UPDATE=update, i_TDO=tdo)
         self.comb += tdo.eq(jtag_register[0])
         self.sync.jtag += [
@@ -151,20 +151,22 @@ class S6VPHY(Module, AutoCSR):
             tx_read.eq(0),
             If(sel,
                 If(update,
-                    If(jtag_register[0] & (jtag_bitcount == jtag_register_length),
-                        rx_data.eq(jtag_register[1:9]),
-                        rx_done.eq(1)
+                    If(jtag_bitcount == jtag_register_length,
+                        If(jtag_register[0],
+                            rx_data.eq(jtag_register[1:9]),
+                            rx_done.eq(1)
+                        ),
+                        If(jtag_register[9] & tx_available,
+                            tx_read.eq(1)
+                        )
                     )
                 ).Elif(shift,
                     jtag_register.eq(Cat(jtag_register[1:], tdi)),
-                    jtag_bitcount.eq(jtag_bitcount + 1),
-                    If(tx_available & tdi & (jtag_bitcount == jtag_register_length-1),
-                        tx_read.eq(1)
-                    )
+                    jtag_bitcount.eq(jtag_bitcount + 1)
                 ).Elif(capture,
                     jtag_bitcount.eq(0),
                     If(tx_available,
-                        jtag_register.eq(Cat(1, tx_data))
+                        jtag_register.eq(Cat(1, tx_data, 0))
                     ).Else(
                         jtag_register.eq(0)
                     )
