@@ -159,15 +159,14 @@ class Flterm:
     def jtag_read(self, size=1):
         data = bytes()
         while len(data) < size:
-            raw = self.openocd_sendrecv("drscan xc6s.tap 10 0x200")
+            raw = self.openocd_sendrecv("drscan xc6s.tap 10 0x000")
             try:
                 raw_data = binascii.a2b_hex(raw)
-            except:
-                sys.stderr.write("Error: odd-length reponse: {}".format(raw))
-                raw_data = b''
-            if len(raw_data) == 2:
                 if raw_data[1] & 0x001:
+                    self.openocd_sendrecv("drscan xc6s.tap 10 0x200")
                     data += bytes([((raw_data[0] & 0x1) << 7) | (raw_data[1] >> 1)])
+            except Exception as error:
+                sys.stderr.write("Error: {}".format(error))
         return data
 
     def openocd_send(self, data):
