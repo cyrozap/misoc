@@ -134,8 +134,8 @@ class S6VPHY(Module, AutoCSR):
         update = Signal()
         tdo = Signal()
 
-        jtag_bitcount = Signal(4)
         jtag_register_length = 10
+        jtag_bitcount = Signal(max=jtag_register_length)
         jtag_register = Signal(jtag_register_length)
 
         self.comb += self.cd_jtag.clk.eq(tck)
