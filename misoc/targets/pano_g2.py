@@ -94,7 +94,7 @@ class _CRG(Module):
                                   o_Q=clk.n)
 
 class BaseSoC(SoCSDRAM):
-    def __init__(self, clk_freq=125*1000*1000, **kwargs):
+    def __init__(self, clk_freq=(83 + Fraction(1, 3))*1000*1000, **kwargs):
         platform = pano_g2.Platform()
         SoCSDRAM.__init__(self, platform, clk_freq,
                           integrated_rom_size=0x8000,
