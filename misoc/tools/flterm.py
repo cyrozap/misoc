@@ -166,7 +166,7 @@ class Flterm:
                     self.openocd_sendrecv("drscan xc6s.tap 10 0x200")
                     data += bytes([((raw_data[0] & 0x1) << 7) | (raw_data[1] >> 1)])
             except Exception as error:
-                sys.stderr.write("Error: {}".format(error))
+                sys.stderr.write("Error: {}\n".format(error))
         return data
 
     def openocd_send(self, data):
