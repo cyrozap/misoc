@@ -158,7 +158,7 @@ class Flterm:
 
     def jtag_read(self, size=1):
         data = bytes()
-        for i in range(0, size):
+        while len(data) < size:
             raw = self.openocd_sendrecv("drscan xc6s.tap 10 0x200")
             try:
                 raw_data = binascii.a2b_hex(raw)
